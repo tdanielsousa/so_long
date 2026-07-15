@@ -1,19 +1,25 @@
-# so_long Tester
+# so_long
 
-A comprehensive, automated bash testing suite for the 42 School **so_long** project.  
+A 2D top-down game built in C using the MiniLibX (MLX) graphics library.  
 
-It thoroughly validates error-handling robustness, CLI arguments, `.ber` map parsing rules, window initialization, and memory management.
+The goal is to guide a player character to collect all mushrooms (collectibles) and reach the exit while navigating a map surrounded by walls, with efficient resource management and zero memory leaks.
 
-
+> Disclaimer: I have a version here inside  **`special_version`** folder that would never be approved by moulinette as it involves forbidden functions and closing the window and opening (MLX limitations made it this way), but i wanted to experiment and take the project further and create an intro screen!
 ---
 
-##  Key Features
+<p align="center">
+  <img src="https://raw.githubusercontent.com/tdanielsousa/tdanielsousa/main/gifs/so_long.gif" alt="so_long gameplay preview" width="600px" />
+</p>
 
-* **Dynamic Memory Leak Detection:** Integrates directly with Valgrind (`--leak-check=full`) to instantly flag memory leaks (`[MKO]`) or verify clean exits (`[MOK]`).
-* **Segmentation Fault Safety:** Monitors the game's termination signals, warning you explicitly with a red `[KO] SEGFAULT` if the executable crashes.
-* **Extensive Edge-Case Coverage:** Over 70 built-in test routines validating bad file extensions, missing permissions, invalid map boundaries, duplicate characters, missing targets, and broken paths.
-* **Interactive Map Validation:** Instantly boots valid maps, verifies that your graphical window successfully initializes (using MLX), and safely terminates the process after `0.35 seconds` to keep the testing loop fluid.
-  
+##  Game Architecture & Design
+
+This project implements a complete game loop backed by structured state management.  
+The entire status of the application is maintained within a single unified structure: `t_game`.
+
+### Technical Specifications
+* **Graphic Engine:** MiniLibX (configured for Linux via X11 Server).
+* **Asset Resolution:** `64x64` pixel sprite matrices (`SIZE 64`).
+* **Controls:** Desktop inputs managed via event hooking (hooked using X11 keycodes like `KeyRelease` and `DestroyNotify` for clean window destruction).
 
 <div align="center">
     <br>
@@ -26,59 +32,83 @@ It thoroughly validates error-handling robustness, CLI arguments, `.ber` map par
 
 ---
 
-##  Automated Test Coverage
+##  Map Parsing & Validation Protocol
 
-The script systematically tests your binary against the following scenarios:
+Before any graphics initialize, the program performs a series of dry runs to check the structure of the input `.ber` map.  
+If any validation fails, the program prints a descriptive message beginning with `Error` and terminates cleanly.
 
-| Test Category | Covered Scenarios | Expected Output |
-|---|---|---|
-| **Argument Checks** | Zero arguments, excess arguments | `"Wrong number of arguments"` |
-| **System & Permissions** | Missing maps, unreadable maps (`chmod 000`) | `"No exist map"`, `"Permission denied"` |
-| **File Extensions** | `.txt`, `.ber.txt`, `.bber`, hidden `.ber` files | `"Bad extension"` |
-| **Map Geometry** | Non-rectangular maps, uneven line lengths | `"No rectangular"` |
-| **Entity Counts** | Missing players, exits, or collectible items | `"No player"`, `"No exit"`, `"No object"` |
-| **Duplicates** | Multiple starting positions, multiple exits | `"Duplicate player"`, `"Duplicate exit"` |
-| **Pathfinding** | Unreachable collectibles or exits (flood-fill check) | `"No valid road"` |
-| **Wall Boundaries** | Maps not completely enclosed by walls | `"Not surrounded by walls"` |
-| **Characters** | Invalid characters within the map matrix | `"Wrong characters"` |
-| **Valid Runs** | Correct `.ber` configurations | Program launches and runs successfully |
+### Phase 1: Boundary Verification
+* **Extension Check (`is_map_extension_ok`):** Validates that the file name strictly terminates in `.ber`.
+* **Geometry Test (`is_map_rectangle`):** Parses rows using `get_map_row_length` to verify the map forms a perfect rectangle.
+* **Closed Walls Check (`is_firstlast_wall_ok` / `is_side_walls_ok`):** Verifies that the top, bottom, left, and right outer perimeters are composed entirely of `1` characters (Walls).
 
----
+### Phase 2: Entity Auditing
+* **Valid Characters (`is_there_only_allowed_chars`):** Only recognizes `1` (Wall), `0` (Floor), `C` (Collectible), `P` (Player starting position), and `E` (Exit).
+* **Rule Verification (`is_there_exit_and_player`):** Guarantees the map has exactly 1 Player starting point (`P`), exactly 1 Exit (`E`), and at least 1 Collectible (`C`).
 
-## Installation & Usage
+### Phase 3: Pathfinding Validation (Flood Fill)
+Even if all entities are present, the map could have blocked pathways.   
+The validation copies the map structure and runs a recursive **Flood Fill** algorithm starting from the player's position:
 
-### 1. Prerequisites
-Make sure your compiled binary (`so_long`) and your testing script are in the same working directory.  
-Additionally, you must have `valgrind` installed on your system.
+    // Core validation concept
+    flood_fill(char **map_copy, int y, int x, t_game *game)
 
-### 2. Setup Directory Structure
-Your maps directory should contain your test configurations matching the paths in the tester script:
-
-    .
-    ├── so_long              # Your compiled game executable
-    ├── tester.sh            # This testing script
-    └── maps/
-        ├── ok.ber           # Valid map configurations
-        ├── wrong_chars.ber  # Invalid map configurations
-        └── ...
-
-### 3. Run the Tester
-Make the script executable and run it:
-
-    chmod +x tester.sh
-    ./tester.sh
+The recursive algorithm walks through adjacent tiles (up, down, left, right) to test accessibility:
+* It collects collectibles and exits dynamically within the replica grid.
+* Finally, it checks if `count_collec_flood == total_collectibles` and `count_exit_flood == 1`. 
+* If any path is obstructed, it detects it, blocks execution, and avoids starting an unplayable game.
 
 ---
 
-##  Output Interpretations
+##  Textures & Asset Pointers
 
-The script uses clear visual cues to pinpoint exactly where your project succeeds or requires attention:
+The game loads `.xpm` image assets into memory using MLX pointers stored dynamically inside your game structure:
 
-* **`[MOK]` / `[MKO]`**: Valgrind status. **MOK** indicates zero memory leaks; **MKO** indicates memory was lost during execution.
-* **`[OK]`**: The program reacted correctly (e.g., printed `Error` followed by an explicit description on invalid inputs, or booted properly on valid inputs).
-* **`[KO] SEGFAULT`**: The game crashed during the parsing or initialization sequence.
-* **`[KO] Missing explicit error message`**: The program printed `Error` but failed to display a descriptive error explanation on the second line.
+* **`wall`:** Border barriers blocking movement.
+* **`floor`:** Background tiles supporting standard movement.
+* **`mush`:** Mushrooms that must be consumed before escape.
+* **`player`:** The active character entity.
+* **`exit`:** The door target that unlocks once all collectibles are gathered.
 
 ---
 
+## Controls & Input Handling
 
+The keyboard events are handled through an interface that intercepts player actions (`process_player_input`):
+
+* **`W` / `A` / `S` / `D` (or Arrow Keys):** Moves the player across the map grid.
+* **`ESC` / Window Red Cross Click:** Gracefully exits the application, releasing all loaded textures, MLX windows, memory-mapped grids, and process allocations.
+
+### Performance Metrics
+A move counter prints the current total steps inside your command-line console interface upon every successful block offset, ensuring that movement is counted correctly according to project guidelines.
+
+---
+
+## Installation & Build Steps
+
+### 1. System Prerequisites
+Ensure you have standard X11 headers and development libraries installed on your Linux machine (required by MiniLibX):
+
+    sudo apt-get install make clang libx11-dev libxext-dev
+
+### 2. Compile the Game
+Build the project executables using your root Makefile:
+
+    make
+
+### 3. Run a Map
+To run the game, launch the executable along with a valid `.ber` map file:
+
+    ./so_long maps/ok.ber
+
+---
+
+## Testing
+
+To test you can use my custom made so_long tester, it tests all the edge cases:
+
+* **[so_long_tester](https://github.com/tdanielsousa/so_long_tester)**
+
+Instructions are available on the tester repo!
+
+---

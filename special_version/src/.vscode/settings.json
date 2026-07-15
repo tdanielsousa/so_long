@@ -1,0 +1,14 @@
+{
+    "files.associations": {
+        "so_long.h": "c",
+        "libft.h": "c",
+        "bit": "c",
+        "cmath": "c",
+        "functional": "c",
+        "random": "c",
+        "limits": "c",
+        "tuple": "c",
+        "stdbool.h": "c",
+        "mlx.h": "c"
+    }
+}
